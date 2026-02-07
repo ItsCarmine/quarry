@@ -1,12 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
-let typstPromise: Promise<typeof import("@myriaddreamin/typst.ts")> | null = null;
+// URLs to the WASM files — Vite serves node_modules as-is in dev
+const RENDERER_WASM_URL =
+  "/node_modules/@myriaddreamin/typst-ts-renderer/pkg/typst_ts_renderer_bg.wasm";
+const COMPILER_WASM_URL =
+  "/node_modules/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm";
+
+let initPromise: Promise<void> | null = null;
+let $typstInstance: any = null;
+
+async function initTypst() {
+  const { $typst } = await import("@myriaddreamin/typst.ts");
+
+  $typst.setCompilerInitOptions({
+    getModule: () => fetch(COMPILER_WASM_URL),
+  });
+  $typst.setRendererInitOptions({
+    getModule: () => fetch(RENDERER_WASM_URL),
+  });
+
+  $typstInstance = $typst;
+}
 
 function getTypst() {
-  if (!typstPromise) {
-    typstPromise = import("@myriaddreamin/typst.ts");
+  if (!initPromise) {
+    initPromise = initTypst();
   }
-  return typstPromise;
+  return initPromise;
 }
 
 export function useTypst() {
@@ -22,12 +42,11 @@ export function useTypst() {
     setError("");
 
     try {
-      const { $typst } = await getTypst();
-      const result = await $typst.svg({ mainContent: source });
+      await getTypst();
+      const result = await $typstInstance.svg({ mainContent: source });
       setSvg(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Typst compilation failed");
-      // On compile error, don't clear previous SVG
     } finally {
       setCompiling(false);
     }
