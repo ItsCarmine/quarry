@@ -144,8 +144,6 @@ async def _broadcast(report_id: str, message: dict) -> None:
 async def _run_pipeline(brief_id: str, report_id: str, query: str) -> None:
     """Execute the full research pipeline and broadcast updates."""
     try:
-        await _broadcast(report_id, {"type": "status", "stage": "dispatching"})
-
         # Build backend list from available API keys
         backends = [ClaudeBackend()]  # Always available (Opus 4.6)
         if settings.xai_api_key:
@@ -156,21 +154,58 @@ async def _run_pipeline(brief_id: str, report_id: str, query: str) -> None:
         backend_names = [b.name for b in backends]
         logger.info("Dispatching to %d backends: %s", len(backends), backend_names)
 
-        dispatcher = Dispatcher(backends=backends)
-        synthesizer = Synthesizer()  # Opus 4.6 mayoral brain
-        generator = TypstGenerator()
+        await _broadcast(report_id, {
+            "type": "status",
+            "stage": "dispatching",
+            "backends": [{"name": b.name, "status": "searching"} for b in backends],
+        })
 
-        # Dispatch to all backends in parallel
-        results = await dispatcher.dispatch(ResearchBrief(query=query))
+        # Dispatch to all backends in parallel with per-backend progress
+        brief = ResearchBrief(query=query)
+        results: list[tuple[str, ResearchResult]] = []
 
-        await _broadcast(report_id, {"type": "status", "stage": "synthesizing"})
+        async def _run_backend(backend):
+            try:
+                result = await backend.research(brief.query, brief.sources)
+                results.append((backend.name, result))
+                await _broadcast(report_id, {
+                    "type": "backend_update",
+                    "name": backend.name,
+                    "status": "done",
+                    "claims": len(result.claims),
+                })
+            except Exception as exc:
+                logger.error("Backend %s failed: %s", backend.name, exc)
+                await _broadcast(report_id, {
+                    "type": "backend_update",
+                    "name": backend.name,
+                    "status": "failed",
+                    "error": str(exc)[:200],
+                })
 
-        # Opus 4.6 mayoral synthesis
+        await asyncio.gather(*[_run_backend(b) for b in backends])
+
+        if not results:
+            raise RuntimeError("All backends failed")
+
+        # Mayoral synthesis
+        await _broadcast(report_id, {
+            "type": "status",
+            "stage": "synthesizing",
+            "detail": f"Opus 4.6 synthesizing {len(results)} backend results...",
+        })
+
+        synthesizer = Synthesizer()
         report = await synthesizer.synthesize(UUID(brief_id), results)
 
-        await _broadcast(report_id, {"type": "status", "stage": "generating"})
+        await _broadcast(report_id, {
+            "type": "status",
+            "stage": "generating",
+            "detail": "Generating Typst report...",
+        })
 
         # Generate Typst
+        generator = TypstGenerator()
         typst_source = generator.generate(report, query=query)
 
         # Persist

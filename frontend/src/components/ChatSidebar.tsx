@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import type { BackendInfo } from "../types";
 
 interface Message {
   role: "user" | "system";
@@ -9,31 +10,43 @@ interface Message {
 interface Props {
   onSubmit: (query: string) => void;
   stage: string;
+  detail: string;
   error: string;
+  backends: BackendInfo[];
   disabled: boolean;
 }
 
-export function ChatSidebar({ onSubmit, stage, error, disabled }: Props) {
+const STATUS_ICON: Record<string, string> = {
+  searching: "\u23F3",  // hourglass
+  done: "\u2705",       // green check
+  failed: "\u274C",     // red x
+};
+
+export function ChatSidebar({ onSubmit, stage, detail, error, backends, disabled }: Props) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const lastStageRef = useRef("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Add system messages for stage updates
+  // Add system messages for major stage transitions only
   useEffect(() => {
-    if (stage) {
-      const labels: Record<string, string> = {
-        dispatching: "Querying research backends...",
-        synthesizing: "Synthesizing findings...",
-        generating: "Generating Typst report...",
-        done: "Report complete.",
-      };
+    if (!stage || stage === lastStageRef.current) return;
+    lastStageRef.current = stage;
+
+    if (stage === "synthesizing") {
       setMessages((prev) => [
         ...prev,
-        {
-          role: "system",
-          content: labels[stage] || stage,
-          timestamp: new Date(),
-        },
+        { role: "system", content: "All backends complete. Opus 4.6 synthesizing...", timestamp: new Date() },
+      ]);
+    } else if (stage === "generating") {
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", content: "Generating Typst report...", timestamp: new Date() },
+      ]);
+    } else if (stage === "done") {
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", content: "Report complete.", timestamp: new Date() },
       ]);
     }
   }, [stage]);
@@ -49,7 +62,7 @@ export function ChatSidebar({ onSubmit, stage, error, disabled }: Props) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, backends]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +84,7 @@ export function ChatSidebar({ onSubmit, stage, error, disabled }: Props) {
       </div>
 
       <div className="chat-messages">
-        {messages.length === 0 && (
+        {messages.length === 0 && backends.length === 0 && (
           <div className="chat-hint">
             Describe what you want to research...
           </div>
@@ -81,6 +94,38 @@ export function ChatSidebar({ onSubmit, stage, error, disabled }: Props) {
             <span className="chat-msg-content">{msg.content}</span>
           </div>
         ))}
+
+        {backends.length > 0 && stage !== "done" && (
+          <div className="backend-progress">
+            <div className="backend-progress-title">Research Backends</div>
+            {backends.map((b) => (
+              <div key={b.name} className={`backend-row backend-${b.status}`}>
+                <span className="backend-icon">{STATUS_ICON[b.status] || "\u23F3"}</span>
+                <span className="backend-name">{b.name}</span>
+                <span className="backend-status">
+                  {b.status === "searching" && "Searching..."}
+                  {b.status === "done" && "Complete"}
+                  {b.status === "failed" && "Failed"}
+                </span>
+              </div>
+            ))}
+            {stage === "synthesizing" && (
+              <div className="backend-row backend-synth">
+                <span className="backend-icon">{"\u{1F9E0}"}</span>
+                <span className="backend-name">Opus 4.6 Mayor</span>
+                <span className="backend-status">Synthesizing...</span>
+              </div>
+            )}
+            {stage === "generating" && (
+              <div className="backend-row backend-done">
+                <span className="backend-icon">{"\u{1F4DD}"}</span>
+                <span className="backend-name">Report</span>
+                <span className="backend-status">Generating...</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 

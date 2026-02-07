@@ -9,7 +9,7 @@ function App() {
   const [reportId, setReportId] = useState<string | null>(null);
   const [researching, setResearching] = useState(false);
 
-  const { stage, typstSource, error } = useWebSocket(reportId);
+  const { stage, detail, typstSource, error, backends } = useWebSocket(reportId);
 
   // Reset researching state when pipeline finishes
   const isActive = researching && stage !== "done" && !error;
@@ -41,7 +41,9 @@ function App() {
       <ChatSidebar
         onSubmit={handleSubmit}
         stage={stage}
+        detail={detail}
         error={error}
+        backends={backends}
         disabled={isActive}
       />
     </div>

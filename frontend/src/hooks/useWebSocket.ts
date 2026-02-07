@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WSMessage } from "../types";
+import type { BackendInfo, WSMessage } from "../types";
 
 export function useWebSocket(reportId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const [stage, setStage] = useState<string>("");
+  const [detail, setDetail] = useState<string>("");
   const [typstSource, setTypstSource] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [connected, setConnected] = useState(false);
+  const [backends, setBackends] = useState<BackendInfo[]>([]);
 
   useEffect(() => {
     if (!reportId) return;
@@ -22,6 +24,15 @@ export function useWebSocket(reportId: string | null) {
       switch (msg.type) {
         case "status":
           setStage(msg.stage);
+          if (msg.detail) setDetail(msg.detail);
+          if (msg.backends) setBackends(msg.backends);
+          break;
+        case "backend_update":
+          setBackends((prev) =>
+            prev.map((b) =>
+              b.name === msg.name ? { ...b, status: msg.status } : b
+            )
+          );
           break;
         case "report":
           setTypstSource(msg.typst_source);
@@ -45,5 +56,5 @@ export function useWebSocket(reportId: string | null) {
     wsRef.current?.send(data);
   }, []);
 
-  return { stage, typstSource, error, connected, send };
+  return { stage, detail, typstSource, error, connected, backends, send };
 }
