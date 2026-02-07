@@ -1,4 +1,4 @@
-"""Claude research backend — Anthropic API via httpx."""
+"""Grok research backend — xAI API (OpenAI-compatible)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,12 @@ from backend.models.source import Source
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-DEFAULT_MODEL = "claude-opus-4-6"
+XAI_API_URL = "https://api.x.ai/v1/chat/completions"
+DEFAULT_MODEL = "grok-3"
 
 SYSTEM_PROMPT = """\
-You are a research assistant. Given a research query and optional source documents, \
+You are a research assistant with access to real-time information from X/Twitter, \
+news, and current events. Given a research query and optional source documents, \
 produce a thorough, well-sourced research summary.
 
 Respond with valid JSON in this exact format:
@@ -37,46 +38,47 @@ Rules:
 - For each claim, include source URLs you can cite. Use an empty list if no URL is available.
 - Set confidence between 0.0 and 1.0 based on how well-supported the claim is.
 - The summary should synthesize all claims into a readable narrative.
+- Leverage your strength in real-time data, news, and social media sources.
 - If source documents are provided, prioritize information from them.\
 """
 
 
-class ClaudeBackend:
-    """Research backend using Anthropic's Claude API."""
+class GrokBackend:
+    """Research backend using xAI's Grok API."""
 
-    name: str = "Claude"
+    name: str = "Grok"
 
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL) -> None:
-        self.api_key = api_key or settings.anthropic_api_key
+        self.api_key = api_key or settings.xai_api_key
         self.model = model
 
     async def research(self, query: str, sources: list[Source]) -> ResearchResult:
-        """Execute a research query via Claude and return structured results."""
+        """Execute a research query via Grok and return structured results."""
         user_content = self._build_user_message(query, sources)
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                ANTHROPIC_API_URL,
+                XAI_API_URL,
                 headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
                 },
                 json={
                     "model": self.model,
-                    "max_tokens": 4096,
-                    "system": SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": user_content}],
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_content},
+                    ],
+                    "temperature": 0.7,
                 },
             )
             response.raise_for_status()
 
         data = response.json()
-        raw_text = data["content"][0]["text"]
+        raw_text = data["choices"][0]["message"]["content"]
         return self._parse_response(raw_text)
 
     def _build_user_message(self, query: str, sources: list[Source]) -> str:
-        """Build the user message from query and optional sources."""
         parts = [f"Research query: {query}"]
         if sources:
             parts.append("\n--- Provided Sources ---")
@@ -85,7 +87,6 @@ class ClaudeBackend:
         return "\n".join(parts)
 
     def _parse_response(self, raw_text: str) -> ResearchResult:
-        """Parse Claude's JSON response into a ResearchResult."""
         try:
             text = raw_text.strip()
             if text.startswith("```"):
@@ -107,9 +108,5 @@ class ClaudeBackend:
                 raw_response=raw_text,
             )
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Failed to parse structured response, using raw text: %s", exc)
-            return ResearchResult(
-                summary=raw_text,
-                claims=[],
-                raw_response=raw_text,
-            )
+            logger.warning("Grok: failed to parse structured response: %s", exc)
+            return ResearchResult(summary=raw_text, claims=[], raw_response=raw_text)

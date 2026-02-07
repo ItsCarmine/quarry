@@ -12,6 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.backends.claude import ClaudeBackend
+from backend.backends.gemini import GeminiBackend
+from backend.backends.grok import GrokBackend
+from backend.config import settings
 from backend.db.database import Database
 from backend.models.brief import ResearchBrief
 from backend.orchestrator.dispatcher import Dispatcher
@@ -143,18 +146,27 @@ async def _run_pipeline(brief_id: str, report_id: str, query: str) -> None:
     try:
         await _broadcast(report_id, {"type": "status", "stage": "dispatching"})
 
-        backend = ClaudeBackend()
-        dispatcher = Dispatcher(backends=[backend])
-        synthesizer = Synthesizer()
+        # Build backend list from available API keys
+        backends = [ClaudeBackend()]  # Always available (Opus 4.6)
+        if settings.xai_api_key:
+            backends.append(GrokBackend())
+        if settings.google_api_key:
+            backends.append(GeminiBackend())
+
+        backend_names = [b.name for b in backends]
+        logger.info("Dispatching to %d backends: %s", len(backends), backend_names)
+
+        dispatcher = Dispatcher(backends=backends)
+        synthesizer = Synthesizer()  # Opus 4.6 mayoral brain
         generator = TypstGenerator()
 
-        # Dispatch to backends
+        # Dispatch to all backends in parallel
         results = await dispatcher.dispatch(ResearchBrief(query=query))
 
         await _broadcast(report_id, {"type": "status", "stage": "synthesizing"})
 
-        # Synthesize
-        report = synthesizer.synthesize(UUID(brief_id), results)
+        # Opus 4.6 mayoral synthesis
+        report = await synthesizer.synthesize(UUID(brief_id), results)
 
         await _broadcast(report_id, {"type": "status", "stage": "generating"})
 
