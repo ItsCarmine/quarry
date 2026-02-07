@@ -112,6 +112,8 @@ async def get_report(report_id: str):
 
 # Active WS connections keyed by report_id
 _ws_connections: dict[str, list[WebSocket]] = {}
+# Latest pipeline state per report_id — replayed when a WS client connects
+_pipeline_state: dict[str, list[dict]] = {}
 
 
 @app.websocket("/ws/research/{report_id}")
@@ -119,6 +121,14 @@ async def research_ws(websocket: WebSocket, report_id: str):
     """Stream live Typst updates for a research report."""
     await websocket.accept()
     _ws_connections.setdefault(report_id, []).append(websocket)
+
+    # Replay any state the pipeline already broadcast before we connected
+    for msg in _pipeline_state.get(report_id, []):
+        try:
+            await websocket.send_json(msg)
+        except Exception:
+            pass
+
     try:
         # Keep connection alive; client can send follow-up queries here later
         while True:
@@ -131,6 +141,9 @@ async def research_ws(websocket: WebSocket, report_id: str):
 
 async def _broadcast(report_id: str, message: dict) -> None:
     """Send a message to all WebSocket clients watching a report."""
+    # Store for replay on late-connecting WS clients
+    _pipeline_state.setdefault(report_id, []).append(message)
+
     for ws in _ws_connections.get(report_id, []):
         try:
             await ws.send_json(message)

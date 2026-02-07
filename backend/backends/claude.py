@@ -54,7 +54,7 @@ class ClaudeBackend:
         """Execute a research query via Claude and return structured results."""
         user_content = self._build_user_message(query, sources)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 ANTHROPIC_API_URL,
                 headers={
@@ -64,7 +64,11 @@ class ClaudeBackend:
                 },
                 json={
                     "model": self.model,
-                    "max_tokens": 4096,
+                    "max_tokens": 16000,
+                    "thinking": {
+                        "type": "enabled",
+                        "budget_tokens": 10000,
+                    },
                     "system": SYSTEM_PROMPT,
                     "messages": [{"role": "user", "content": user_content}],
                 },
@@ -72,7 +76,12 @@ class ClaudeBackend:
             response.raise_for_status()
 
         data = response.json()
-        raw_text = data["content"][0]["text"]
+        # With extended thinking, content has thinking + text blocks
+        raw_text = ""
+        for block in data["content"]:
+            if block["type"] == "text":
+                raw_text = block["text"]
+                break
         return self._parse_response(raw_text)
 
     def _build_user_message(self, query: str, sources: list[Source]) -> str:

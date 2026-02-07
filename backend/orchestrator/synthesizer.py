@@ -80,7 +80,7 @@ class Synthesizer:
         user_content = self._build_synthesis_input(results)
 
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 response = await client.post(
                     ANTHROPIC_API_URL,
                     headers={
@@ -90,7 +90,11 @@ class Synthesizer:
                     },
                     json={
                         "model": self.model,
-                        "max_tokens": 8192,
+                        "max_tokens": 16000,
+                        "thinking": {
+                            "type": "enabled",
+                            "budget_tokens": 10000,
+                        },
                         "system": SYNTHESIS_PROMPT,
                         "messages": [{"role": "user", "content": user_content}],
                     },
@@ -98,7 +102,12 @@ class Synthesizer:
                 response.raise_for_status()
 
             data = response.json()
-            raw_text = data["content"][0]["text"]
+            # With extended thinking, content has thinking + text blocks
+            raw_text = ""
+            for block in data["content"]:
+                if block["type"] == "text":
+                    raw_text = block["text"]
+                    break
             return self._parse_synthesis(brief_id, raw_text)
 
         except Exception as exc:
