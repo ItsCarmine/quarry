@@ -14,7 +14,7 @@ from backend.models.source import Source
 logger = logging.getLogger(__name__)
 
 XAI_API_URL = "https://api.x.ai/v1/chat/completions"
-DEFAULT_MODEL = "grok-3"
+DEFAULT_MODEL = "grok-4-1-fast"
 
 SYSTEM_PROMPT = """\
 You are a research assistant with access to real-time information from X/Twitter, \
